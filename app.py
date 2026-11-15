@@ -3,7 +3,23 @@ import matplotlib.pyplot as plt
 from churn_pipeline import engineer
 
 st.set_page_config(page_title="Bank Churn Risk", layout="wide")
-art = joblib.load("churn_model.joblib"); model, cols, thr = art["model"], art["columns"], art["threshold"]
+import os
+from sklearn.ensemble import GradientBoostingClassifier
+
+@st.cache_resource
+def load_artifact():
+    """Load the saved model; if the file is missing/empty/incompatible, retrain from European_Bank.csv."""
+    try:
+        if os.path.getsize("churn_model.joblib") > 0:
+            return joblib.load("churn_model.joblib")
+    except Exception:
+        pass
+    df = pd.read_csv("European_Bank.csv").drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
+    X = engineer(df.drop(columns="Exited")); y = df["Exited"]
+    m = GradientBoostingClassifier(n_estimators=300, learning_rate=0.05, max_depth=3, subsample=0.8, random_state=42).fit(X, y)
+    return dict(model=m, columns=list(X.columns), threshold=0.30, name="Gradient Boosting")
+
+art = load_artifact(); model, cols, thr = art["model"], art["columns"], art["threshold"]
 
 def score(row: dict) -> float:
     X = engineer(pd.DataFrame([row]))
