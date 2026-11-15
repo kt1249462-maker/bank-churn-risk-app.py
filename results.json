@@ -1,0 +1,26 @@
+{
+  "selected": "Gradient Boosting",
+  "tuned": {
+    "threshold": 0.3,
+    "accuracy": 0.847,
+    "precision": 0.617169373549884,
+    "recall": 0.6535626535626535,
+    "f1": 0.6348448687350835,
+    "roc_auc": 0.8694595982731576,
+    "confusion": [
+      [
+        1428,
+        165
+      ],
+      [
+        141,
+        266
+      ]
+    ]
+  },
+  "ablation": {
+    "all_features": 0.8719181431045838,
+    "behavioural_only": 0.8355273609510898,
+    "demographic_only": 0.7768292175071836
+  }
+}
