@@ -1,33 +1,26 @@
-import importlib, importlib.util, shutil, subprocess, sys
+import importlib, importlib.util, os, subprocess, sys
 import streamlit as st
 
-def _run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+# The app's environment is read-only at runtime, so missing libraries are installed into a
+# writable folder and added to the END of sys.path (the preinstalled numpy/pandas keep priority).
+LIBDIR = "/tmp/pylibs"
+os.makedirs(LIBDIR, exist_ok=True)
+if LIBDIR not in sys.path:
+    sys.path.append(LIBDIR)
 
 def _bootstrap():
-    """Install missing libraries at startup, trying pip, then uv, then ensurepip+pip."""
     need = [(p, m) for p, m in [("scikit-learn", "sklearn"), ("joblib", "joblib"), ("matplotlib", "matplotlib")]
             if importlib.util.find_spec(m) is None]
     if not need:
         return
     pkgs = [p for p, _ in need]
-    log = []
-    plans = [
-        [sys.executable, "-m", "pip", "install", *pkgs],
-        ["uv", "pip", "install", "--python", sys.executable, *pkgs],
-    ]
-    for cmd in plans:
-        if cmd[0] != sys.executable and shutil.which(cmd[0]) is None:
-            log.append(f"$ {cmd[0]} not found"); continue
-        r = _run(cmd); log.append("$ " + " ".join(cmd) + "\n" + (r.stdout + r.stderr)[-1200:])
-        if r.returncode == 0:
-            importlib.invalidate_caches(); return
-    r = _run([sys.executable, "-m", "ensurepip"]); log.append("$ ensurepip\n" + (r.stdout + r.stderr)[-600:])
-    r = _run([sys.executable, "-m", "pip", "install", *pkgs]); log.append("$ pip (after ensurepip)\n" + (r.stdout + r.stderr)[-1200:])
-    if r.returncode == 0:
-        importlib.invalidate_caches(); return
-    st.error("Could not install: " + ", ".join(pkgs) + ". Details below - please send this to your helper.")
-    st.code("\n\n".join(log)); st.stop()
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "--target", LIBDIR, *pkgs],
+                       capture_output=True, text=True)
+    importlib.invalidate_caches()
+    still = [m for _, m in need if importlib.util.find_spec(m) is None]
+    if r.returncode != 0 or still:
+        st.error("Could not install: " + ", ".join(pkgs) + ". Details below - please send this to your helper.")
+        st.code((r.stdout + r.stderr)[-2500:]); st.stop()
 
 _bootstrap()
 
