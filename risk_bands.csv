@@ -1,0 +1,5 @@
+band,customers,actual_churn_rate
+Low,1374,0.067
+Medium,367,0.3
+High,149,0.691
+Critical,110,0.927
