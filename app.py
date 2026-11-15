@@ -1,14 +1,35 @@
-import subprocess, sys
+import importlib, importlib.util, shutil, subprocess, sys
+import streamlit as st
 
-def _ensure(pip_name, module):
-    """Install a missing library at startup (works even if requirements.txt is not picked up)."""
-    try:
-        __import__(module)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+def _run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
 
-for _pip, _mod in [("scikit-learn", "sklearn"), ("joblib", "joblib"), ("matplotlib", "matplotlib")]:
-    _ensure(_pip, _mod)
+def _bootstrap():
+    """Install missing libraries at startup, trying pip, then uv, then ensurepip+pip."""
+    need = [(p, m) for p, m in [("scikit-learn", "sklearn"), ("joblib", "joblib"), ("matplotlib", "matplotlib")]
+            if importlib.util.find_spec(m) is None]
+    if not need:
+        return
+    pkgs = [p for p, _ in need]
+    log = []
+    plans = [
+        [sys.executable, "-m", "pip", "install", *pkgs],
+        ["uv", "pip", "install", "--python", sys.executable, *pkgs],
+    ]
+    for cmd in plans:
+        if cmd[0] != sys.executable and shutil.which(cmd[0]) is None:
+            log.append(f"$ {cmd[0]} not found"); continue
+        r = _run(cmd); log.append("$ " + " ".join(cmd) + "\n" + (r.stdout + r.stderr)[-1200:])
+        if r.returncode == 0:
+            importlib.invalidate_caches(); return
+    r = _run([sys.executable, "-m", "ensurepip"]); log.append("$ ensurepip\n" + (r.stdout + r.stderr)[-600:])
+    r = _run([sys.executable, "-m", "pip", "install", *pkgs]); log.append("$ pip (after ensurepip)\n" + (r.stdout + r.stderr)[-1200:])
+    if r.returncode == 0:
+        importlib.invalidate_caches(); return
+    st.error("Could not install: " + ", ".join(pkgs) + ". Details below - please send this to your helper.")
+    st.code("\n\n".join(log)); st.stop()
+
+_bootstrap()
 
 import json, joblib, numpy as np, pandas as pd, streamlit as st
 import matplotlib.pyplot as plt
