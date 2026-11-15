@@ -1,0 +1,71 @@
+import json, joblib, numpy as np, pandas as pd, streamlit as st
+import matplotlib.pyplot as plt
+from churn_pipeline import engineer
+
+st.set_page_config(page_title="Bank Churn Risk", layout="wide")
+art = joblib.load("churn_model.joblib"); model, cols, thr = art["model"], art["columns"], art["threshold"]
+
+def score(row: dict) -> float:
+    X = engineer(pd.DataFrame([row]))
+    return float(model.predict_proba(X.reindex(columns=cols, fill_value=0))[0, 1])
+
+def band(p):
+    return "Low" if p < .2 else "Medium" if p < .5 else "High" if p < .8 else "Critical"
+
+def inputs(prefix, d=None):
+    d = d or {}
+    c1, c2 = st.columns(2)
+    r = {}
+    r["Geography"] = c1.selectbox("Geography", ["France","Spain","Germany"], index=["France","Spain","Germany"].index(d.get("Geography","France")), key=prefix+"g")
+    r["Gender"] = c2.selectbox("Gender", ["Female","Male"], index=["Female","Male"].index(d.get("Gender","Female")), key=prefix+"s")
+    r["CreditScore"] = c1.slider("Credit score", 300, 850, d.get("CreditScore",650), key=prefix+"c")
+    r["Age"] = c2.slider("Age", 18, 92, d.get("Age",40), key=prefix+"a")
+    r["Tenure"] = c1.slider("Tenure (years)", 0, 10, d.get("Tenure",5), key=prefix+"t")
+    r["Balance"] = c2.number_input("Balance", 0.0, 300000.0, float(d.get("Balance",75000.0)), 1000.0, key=prefix+"b")
+    r["NumOfProducts"] = c1.slider("Number of products", 1, 4, d.get("NumOfProducts",2), key=prefix+"n")
+    r["EstimatedSalary"] = c2.number_input("Estimated salary", 0.0, 250000.0, float(d.get("EstimatedSalary",100000.0)), 1000.0, key=prefix+"e")
+    r["HasCrCard"] = int(c1.checkbox("Has credit card", bool(d.get("HasCrCard",1)), key=prefix+"h"))
+    r["IsActiveMember"] = int(c2.checkbox("Active member", bool(d.get("IsActiveMember",1)), key=prefix+"i"))
+    return r
+
+st.title("Bank Customer Churn: Risk Scoring")
+st.caption(f"Model: {art['name']} · decision threshold {thr:.2f}")
+t1, t2, t3, t4 = st.tabs(["Risk calculator", "What-if simulator", "Feature importance", "Probability distribution"])
+
+with t1:
+    r = inputs("calc_"); p = score(r)
+    a, b, c = st.columns(3)
+    a.metric("Churn probability", f"{p:.1%}"); b.metric("Risk band", band(p)); c.metric("Churn flag", "Likely to churn" if p >= thr else "Likely to stay")
+    st.progress(min(p, 1.0))
+
+with t2:
+    st.write("Set a baseline customer, then change engagement and product values to see the effect.")
+    l, rcol = st.columns(2)
+    with l:
+        st.subheader("Baseline"); base = inputs("base_")
+    with rcol:
+        st.subheader("Scenario")
+        sc = dict(base)
+        sc["NumOfProducts"] = st.slider("Number of products ", 1, 4, base["NumOfProducts"], key="sc_n")
+        sc["IsActiveMember"] = int(st.checkbox("Active member ", bool(base["IsActiveMember"]), key="sc_i"))
+        sc["Balance"] = st.number_input("Balance ", 0.0, 300000.0, float(base["Balance"]), 1000.0, key="sc_b")
+        sc["Tenure"] = st.slider("Tenure ", 0, 10, base["Tenure"], key="sc_t")
+    p0, p1 = score(base), score(sc)
+    x, y, z = st.columns(3)
+    x.metric("Baseline", f"{p0:.1%}"); y.metric("Scenario", f"{p1:.1%}", f"{(p1-p0)*100:+.1f} pts", delta_color="inverse"); z.metric("Scenario band", band(p1))
+    ns = list(range(1, 5)); fig, ax = plt.subplots(figsize=(5, 2.8))
+    ax.plot(ns, [score({**sc, "NumOfProducts": n}) for n in ns], marker="o"); ax.set_xticks(ns)
+    ax.set_xlabel("Number of products"); ax.set_ylabel("Churn probability"); ax.set_title("Sensitivity to product count (scenario customer)")
+    st.pyplot(fig)
+
+with t3:
+    imp = pd.read_csv("feature_importance.csv", index_col=0).iloc[:, 0].head(12)[::-1]
+    fig, ax = plt.subplots(figsize=(6, 4)); imp.plot.barh(ax=ax, color="#1f4e79"); ax.set_xlabel("Drop in ROC-AUC when shuffled")
+    st.pyplot(fig); st.image("figures/pdp.png", caption="Partial dependence of churn probability")
+    res = json.load(open("results.json"))["ablation"]
+    st.write("**Behavioural vs demographic signal (ROC-AUC)**", {k: round(v, 3) for k, v in res.items()})
+
+with t4:
+    st.dataframe(pd.read_csv("model_comparison.csv"), hide_index=True)
+    st.image("figures/prob_dist.png"); st.image("figures/roc.png", width=450)
+    st.dataframe(pd.read_csv("risk_bands.csv"), hide_index=True)
