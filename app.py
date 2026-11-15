@@ -1,3 +1,15 @@
+import subprocess, sys
+
+def _ensure(pip_name, module):
+    """Install a missing library at startup (works even if requirements.txt is not picked up)."""
+    try:
+        __import__(module)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+
+for _pip, _mod in [("scikit-learn", "sklearn"), ("joblib", "joblib"), ("matplotlib", "matplotlib")]:
+    _ensure(_pip, _mod)
+
 import json, joblib, numpy as np, pandas as pd, streamlit as st
 import matplotlib.pyplot as plt
 from churn_pipeline import engineer
