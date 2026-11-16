@@ -73,7 +73,14 @@ def show_img(path, **kw):
     if os.path.exists(path):
         st.image(path, **kw); return
     if not os.path.exists("European_Bank.csv"):
-        st.info(f"Image not available: {path}"); return
+        st.warning(f"Cannot draw {path}: European_Bank.csv was not found next to app.py. "
+                   f"Files the app can see in {os.getcwd()}: {sorted(os.listdir('.'))}"); return
+    try:
+        _draw_missing(path)
+    except Exception as e:
+        st.error(f"Chart for {path} failed: {type(e).__name__}: {e}")
+
+def _draw_missing(path):
     from sklearn.metrics import roc_curve, roc_auc_score
     from sklearn.inspection import PartialDependenceDisplay
     ev = eval_models(); name = os.path.basename(path)
@@ -127,6 +134,7 @@ def inputs(prefix, d=None):
 
 st.title("Bank Customer Churn: Risk Scoring")
 st.caption(f"Model: {art['name']} · decision threshold {thr:.2f}")
+st.caption("App version: v6 (charts drawn in-app)")
 t1, t2, t3, t4 = st.tabs(["Risk calculator", "What-if simulator", "Feature importance", "Probability distribution"])
 
 with t1:
