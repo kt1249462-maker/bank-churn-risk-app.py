@@ -47,6 +47,18 @@ def load_artifact():
 
 art = load_artifact(); model, cols, thr = art["model"], art["columns"], art["threshold"]
 
+def show_img(path, **kw):
+    if os.path.exists(path):
+        st.image(path, **kw)
+    else:
+        st.info(f"Image not available: {path}")
+
+def show_csv(path):
+    if os.path.exists(path):
+        st.dataframe(pd.read_csv(path), hide_index=True)
+    else:
+        st.info(f"Data file not available: {path}")
+
 def score(row: dict) -> float:
     X = engineer(pd.DataFrame([row]))
     return float(model.predict_proba(X.reindex(columns=cols, fill_value=0))[0, 1])
@@ -101,13 +113,18 @@ with t2:
     st.pyplot(fig)
 
 with t3:
-    imp = pd.read_csv("feature_importance.csv", index_col=0).iloc[:, 0].head(12)[::-1]
-    fig, ax = plt.subplots(figsize=(6, 4)); imp.plot.barh(ax=ax, color="#1f4e79"); ax.set_xlabel("Drop in ROC-AUC when shuffled")
-    st.pyplot(fig); st.image("figures/pdp.png", caption="Partial dependence of churn probability")
-    res = json.load(open("results.json"))["ablation"]
-    st.write("**Behavioural vs demographic signal (ROC-AUC)**", {k: round(v, 3) for k, v in res.items()})
+    if os.path.exists("feature_importance.csv"):
+        imp = pd.read_csv("feature_importance.csv", index_col=0).iloc[:, 0].head(12)[::-1]
+        fig, ax = plt.subplots(figsize=(6, 4)); imp.plot.barh(ax=ax, color="#1f4e79"); ax.set_xlabel("Drop in ROC-AUC when shuffled")
+        st.pyplot(fig)
+    else:
+        st.info("Data file not available: feature_importance.csv")
+    show_img("figures/pdp.png", caption="Partial dependence of churn probability")
+    if os.path.exists("results.json"):
+        res = json.load(open("results.json"))["ablation"]
+        st.write("**Behavioural vs demographic signal (ROC-AUC)**", {k: round(v, 3) for k, v in res.items()})
 
 with t4:
-    st.dataframe(pd.read_csv("model_comparison.csv"), hide_index=True)
-    st.image("figures/prob_dist.png"); st.image("figures/roc.png", width=450)
-    st.dataframe(pd.read_csv("risk_bands.csv"), hide_index=True)
+    show_csv("model_comparison.csv")
+    show_img("figures/prob_dist.png"); show_img("figures/roc.png", width=450)
+    show_csv("risk_bands.csv")
