@@ -47,9 +47,52 @@ def load_artifact():
 
 art = load_artifact(); model, cols, thr = art["model"], art["columns"], art["threshold"]
 
+@st.cache_resource
+def eval_models():
+    """Train on an 80/20 stratified split of European_Bank.csv and keep test-set probabilities (used when image files are missing)."""
+    from sklearn.model_selection import train_test_split
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.ensemble import RandomForestClassifier
+    df = pd.read_csv("European_Bank.csv").drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
+    X = engineer(df.drop(columns="Exited")); y = df["Exited"]
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+    gb = GradientBoostingClassifier(n_estimators=300, learning_rate=0.05, max_depth=3, subsample=0.8, random_state=42).fit(Xtr, ytr)
+    models = {
+        "Logistic Regression": make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, class_weight="balanced")).fit(Xtr, ytr),
+        "Decision Tree": DecisionTreeClassifier(max_depth=5, min_samples_leaf=40, class_weight="balanced", random_state=42).fit(Xtr, ytr),
+        "Random Forest": RandomForestClassifier(n_estimators=200, min_samples_leaf=5, class_weight="balanced_subsample", n_jobs=-1, random_state=42).fit(Xtr, ytr),
+        "Gradient Boosting": gb,
+    }
+    probs = {n: m.predict_proba(Xte)[:, 1] for n, m in models.items()}
+    return dict(probs=probs, yte=yte.values, Xte=Xte, gb=gb)
+
 def show_img(path, **kw):
     if os.path.exists(path):
-        st.image(path, **kw)
+        st.image(path, **kw); return
+    if not os.path.exists("European_Bank.csv"):
+        st.info(f"Image not available: {path}"); return
+    from sklearn.metrics import roc_curve, roc_auc_score
+    from sklearn.inspection import PartialDependenceDisplay
+    ev = eval_models(); name = os.path.basename(path)
+    if name == "prob_dist.png":
+        p, y = ev["probs"]["Gradient Boosting"], ev["yte"]
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.hist(p[y == 0], bins=30, alpha=.6, label="Retained"); ax.hist(p[y == 1], bins=30, alpha=.6, label="Churned")
+        ax.axvline(thr, color="k", ls="--", label=f"threshold {thr:.2f}"); ax.set_xlabel("Predicted churn probability"); ax.legend()
+        ax.set_title("Probability distribution (test set)"); st.pyplot(fig)
+    elif name == "roc.png":
+        fig, ax = plt.subplots(figsize=(6, 5))
+        for n, p in ev["probs"].items():
+            f, t, _ = roc_curve(ev["yte"], p); ax.plot(f, t, label=f"{n} ({roc_auc_score(ev['yte'], p):.3f})")
+        ax.plot([0, 1], [0, 1], "k--"); ax.set_xlabel("False positive rate"); ax.set_ylabel("True positive rate")
+        ax.set_title("ROC curves (test set)"); ax.legend(fontsize=8); st.pyplot(fig)
+    elif name == "pdp.png":
+        fig, ax = plt.subplots(figsize=(10, 3.2))
+        PartialDependenceDisplay.from_estimator(ev["gb"], ev["Xte"].astype(float), ["Age", "NumOfProducts", "Balance", "IsActiveMember"], ax=ax)
+        plt.tight_layout(); st.pyplot(fig)
     else:
         st.info(f"Image not available: {path}")
 
