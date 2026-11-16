@@ -1,4 +1,4 @@
-import importlib, importlib.util, os, subprocess, sys
+import glob, importlib, importlib.util, os, subprocess, sys
 import streamlit as st
 
 # The app's environment is read-only at runtime, so missing libraries are installed into a
@@ -32,6 +32,18 @@ st.set_page_config(page_title="Bank Churn Risk", layout="wide")
 import os
 from sklearn.ensemble import GradientBoostingClassifier
 
+def _csv_path():
+    """Find the data file even if the browser renamed it (e.g. 'European_Bank (1).csv')."""
+    found = sorted(glob.glob("European_Bank*.csv"))
+    return found[0] if found else None
+
+def _img_path(path):
+    """Look for an image in figures/ first, then at the top level of the repo."""
+    for c in (path, os.path.basename(path)):
+        if os.path.exists(c):
+            return c
+    return None
+
 @st.cache_resource
 def load_artifact():
     """Load the saved model; if the file is missing/empty/incompatible, retrain from European_Bank.csv."""
@@ -40,7 +52,7 @@ def load_artifact():
             return joblib.load("churn_model.joblib")
     except Exception:
         pass
-    df = pd.read_csv("European_Bank.csv").drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
+    df = pd.read_csv(_csv_path()).drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
     X = engineer(df.drop(columns="Exited")); y = df["Exited"]
     m = GradientBoostingClassifier(n_estimators=300, learning_rate=0.05, max_depth=3, subsample=0.8, random_state=42).fit(X, y)
     return dict(model=m, columns=list(X.columns), threshold=0.30, name="Gradient Boosting")
@@ -56,7 +68,7 @@ def eval_models():
     from sklearn.linear_model import LogisticRegression
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.ensemble import RandomForestClassifier
-    df = pd.read_csv("European_Bank.csv").drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
+    df = pd.read_csv(_csv_path()).drop(columns=["Year", "CustomerId", "Surname"], errors="ignore")
     X = engineer(df.drop(columns="Exited")); y = df["Exited"]
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
     gb = GradientBoostingClassifier(n_estimators=300, learning_rate=0.05, max_depth=3, subsample=0.8, random_state=42).fit(Xtr, ytr)
@@ -70,10 +82,11 @@ def eval_models():
     return dict(probs=probs, yte=yte.values, Xte=Xte, gb=gb)
 
 def show_img(path, **kw):
-    if os.path.exists(path):
-        st.image(path, **kw); return
-    if not os.path.exists("European_Bank.csv"):
-        st.warning(f"Cannot draw {path}: European_Bank.csv was not found next to app.py. "
+    found = _img_path(path)
+    if found:
+        st.image(found, **kw); return
+    if _csv_path() is None:
+        st.warning(f"Cannot draw {path}: no European_Bank*.csv was found next to app.py. "
                    f"Files the app can see in {os.getcwd()}: {sorted(os.listdir('.'))}"); return
     try:
         _draw_missing(path)
@@ -134,7 +147,7 @@ def inputs(prefix, d=None):
 
 st.title("Bank Customer Churn: Risk Scoring")
 st.caption(f"Model: {art['name']} · decision threshold {thr:.2f}")
-st.caption("App version: v6 (charts drawn in-app)")
+st.caption("App version: v7 (finds misnamed files)")
 t1, t2, t3, t4 = st.tabs(["Risk calculator", "What-if simulator", "Feature importance", "Probability distribution"])
 
 with t1:
